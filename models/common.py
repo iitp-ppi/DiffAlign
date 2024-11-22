@@ -10,39 +10,6 @@ from torch_geometric.utils import to_dense_adj, dense_to_sparse
 from utils.chem import BOND_TYPES
 
 
-class MeanReadout(nn.Module):
-    """Mean readout operator over graphs with variadic sizes."""
-
-    def forward(self, data, input):
-        """
-        Perform readout over the graph(s).
-        Parameters:
-            data (torch_geometric.data.Data): batched graph
-            input (Tensor): node representations
-        Returns:
-            Tensor: graph representations
-        """
-        output = scatter_mean(input, data.batch, dim=0, dim_size=data.num_graphs)
-        return output
-
-
-class SumReadout(nn.Module):
-    """Sum readout operator over graphs with variadic sizes."""
-
-    def forward(self, data, input):
-        """
-        Perform readout over the graph(s).
-        Parameters:
-            data (torch_geometric.data.Data): batched graph
-            input (Tensor): node representations
-        Returns:
-            Tensor: graph representations
-        """
-        output = scatter_add(input, data.batch, dim=0, dim_size=data.num_graphs)
-        return output
-
-
-
 class MultiLayerPerceptron(nn.Module):
     """
     Multi-layer Perceptron.
@@ -82,36 +49,7 @@ class MultiLayerPerceptron(nn.Module):
                 if self.dropout:
                     x = self.dropout(x)
         return x
-
-
-def assemble_atom_pair_feature(node_attr, edge_index, edge_attr):
-    h_row, h_col = node_attr[edge_index[0]], node_attr[edge_index[1]]
-    h_pair = torch.cat([h_row*h_col, edge_attr], dim=-1)    # (E, 2H)
-    return h_pair
     
-
-def generate_symmetric_edge_noise(num_nodes_per_graph, edge_index, edge2graph, device):
-    num_cum_nodes = num_nodes_per_graph.cumsum(0)  # (G, )
-    node_offset = num_cum_nodes - num_nodes_per_graph  # (G, )
-    edge_offset = node_offset[edge2graph]  # (E, )
-
-    num_nodes_square = num_nodes_per_graph**2  # (G, )
-    num_nodes_square_cumsum = num_nodes_square.cumsum(-1)  # (G, )
-    edge_start = num_nodes_square_cumsum - num_nodes_square  # (G, )
-    edge_start = edge_start[edge2graph]
-
-    all_len = num_nodes_square_cumsum[-1]
-
-    node_index = edge_index.t() - edge_offset.unsqueeze(-1)
-    node_large = node_index.max(dim=-1)[0]
-    node_small = node_index.min(dim=-1)[0]
-    undirected_edge_id = node_large * (node_large + 1) + node_small + edge_start
-
-    symm_noise = torch.zeros(size=[all_len.item()], device=device)
-    symm_noise.normal_()
-    d_noise = symm_noise[undirected_edge_id].unsqueeze(-1)  # (E, 1)
-    return d_noise
-
 
 def _extend_graph_order(num_nodes, edge_index, edge_type, order=3):
     """
@@ -164,13 +102,6 @@ def _extend_graph_order(num_nodes, edge_index, edge_type, order=3):
     type_new = type_mat + type_highorder
 
     new_edge_index, new_edge_type = dense_to_sparse(type_new)
-    # _, edge_order = dense_to_sparse(adj_order)
-
-    # data.bond_edge_index = data.edge_index  # Save original edges
-    # print(new_edge_index[1].max())
-    # print(adj_order.shape)
-    # print(N)
-    # print(edge_index.max())
     new_edge_index, new_edge_type = coalesce(new_edge_index, new_edge_type.long(), N, N) # modify data
     
     # [Note] This is not necessary
@@ -204,8 +135,6 @@ def _extend_to_radius_graph(pos, edge_index, edge_type, cutoff, batch, unspecifi
     )
 
     composed_adj = (bgraph_adj + rgraph_adj).coalesce()  # Sparse (N, N, T)
-    # edge_index = composed_adj.indices()
-    # dist = (pos[edge_index[0]] - pos[edge_index[1]]).norm(dim=-1)
 
     new_edge_index = composed_adj.indices()
     new_edge_type = composed_adj.values().long()
@@ -215,17 +144,11 @@ def _extend_to_radius_graph(pos, edge_index, edge_type, cutoff, batch, unspecifi
     
     return new_edge_index, new_edge_type
 
+
 def extend_to_cross_attention(pos, cutoff, batch, graph_idx):
 
     rgraph_edge_index = radius_graph(pos, r=cutoff, batch=batch)    # (2, E_r)
     rgraph_edge_index = rgraph_edge_index[:,graph_idx[rgraph_edge_index[0]]!=graph_idx[rgraph_edge_index[1]]]
-    
-    return rgraph_edge_index
-
-def extend_to_self_attention(pos, cutoff, batch, graph_idx):
-
-    rgraph_edge_index = radius_graph(pos, r=cutoff, batch=batch)    # (2, E_r)
-    rgraph_edge_index = rgraph_edge_index[:,graph_idx[rgraph_edge_index[0]]==graph_idx[rgraph_edge_index[1]]]
     
     return rgraph_edge_index
 
@@ -250,46 +173,3 @@ def extend_graph_order_radius(num_nodes, pos, edge_index, edge_type, batch, orde
         )
     
     return edge_index, edge_type
-
-
-def coarse_grain(pos, node_attr, subgraph_index, batch):
-    cluster_pos = scatter_mean(pos, index=subgraph_index, dim=0)    # (num_clusters, 3)
-    cluster_attr = scatter_add(node_attr, index=subgraph_index, dim=0)  # (num_clusters, H)
-    cluster_batch, _ = scatter_max(batch, index=subgraph_index, dim=0) # (num_clusters, )
-
-    return cluster_pos, cluster_attr, cluster_batch
-
-
-def batch_to_natoms(batch):
-    return scatter_add(torch.ones_like(batch), index=batch, dim=0)
-
-
-def get_complete_graph(natoms):
-    """
-    Args:
-        natoms: Number of nodes per graph, (B, 1).
-    Returns:
-        edge_index: (2, N_1 + N_2 + ... + N_{B-1}), where N_i is the number of nodes of the i-th graph.
-        num_edges:  (B, ), number of edges per graph.
-    """
-    natoms_sqr = (natoms ** 2).long()
-    num_atom_pairs = torch.sum(natoms_sqr)
-    natoms_expand = torch.repeat_interleave(natoms, natoms_sqr)
-
-    index_offset = torch.cumsum(natoms, dim=0) - natoms
-    index_offset_expand = torch.repeat_interleave(index_offset, natoms_sqr)
-
-    index_sqr_offset = torch.cumsum(natoms_sqr, dim=0) - natoms_sqr
-    index_sqr_offset = torch.repeat_interleave(index_sqr_offset, natoms_sqr)
-
-    atom_count_sqr = torch.arange(num_atom_pairs, device=num_atom_pairs.device) - index_sqr_offset
-
-    index1 = (atom_count_sqr // natoms_expand).long() + index_offset_expand
-    index2 = (atom_count_sqr % natoms_expand).long() + index_offset_expand
-    edge_index = torch.cat([index1.view(1, -1), index2.view(1, -1)])
-    mask = torch.logical_not(index1 == index2)
-    edge_index = edge_index[:, mask]
-
-    num_edges = natoms_sqr - natoms # Number of edges per graph
-
-    return edge_index, num_edges

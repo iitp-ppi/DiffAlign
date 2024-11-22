@@ -49,14 +49,6 @@ class E_GCL(nn.Module):
 
         if self.attention:
             self.att_mlp = nn.Sequential(
-                # nn.Linear(hidden_nf, hidden_nf),
-                # nn.SiLU(),
-                # nn.Linear(hidden_nf, hidden_nf),
-                # nn.SiLU(),
-                # nn.Linear(hidden_nf, hidden_nf),
-                # nn.SiLU(),
-                # nn.Linear(hidden_nf, hidden_nf),
-                # nn.SiLU(),
                 nn.Linear(hidden_nf, 1),
                 nn.Sigmoid())
 
@@ -85,7 +77,7 @@ class E_GCL(nn.Module):
         out = x + self.node_mlp(agg)
         return out, agg
 
-    def coord_model(self, coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask, template_mask):
+    def coord_model(self, coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask, coord_mask):
         row, col = edge_index
         if self.tanh:
             trans = coord_diff * self.coord_mlp(edge_feat) * self.coords_range
@@ -94,22 +86,20 @@ class E_GCL(nn.Module):
         if edge_mask is not None:
             trans = trans * edge_mask
         agg = unsorted_segment_sum(trans, row, num_segments=coord.size(0))
-        if template_mask == None:
+        if coord_mask == None:
             coord = coord + agg
         else:
-            coord = coord + agg * template_mask.view(-1,1)
+            coord = coord + agg * coord_mask.view(-1,1)
         return coord
 
-    def forward(self, h, edge_index, coord, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None, template_mask=None):
+    def forward(self, h, edge_index, coord, edge_attr=None, node_attr=None, node_mask=None, edge_mask=None, coord_mask=None):
         row, col = edge_index
         radial, coord_diff = self.coord2radial(edge_index, coord)
 
-        edge_feat = self.edge_model(h[row], h[col], radial, edge_attr, edge_mask)
-        coord = self.coord_model(coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask, template_mask)
+        edge_feat = self.edge_model(h[row], h[col], radial, edge_attr, edge_mask) # Make message
+        coord = self.coord_model(coord, edge_index, coord_diff, radial, edge_feat, node_mask, edge_mask, coord_mask) # Update coordinates
 
-        h, agg = self.node_model(h, edge_index, edge_feat, node_attr)
-        # coord = self.node_coord_model(h, coord)
-        # x = self.node_model(x, edge_index, x[col], u, batch)  # GCN
+        h, agg = self.node_model(h, edge_index, edge_feat, node_attr) # Update nodes
 
         if node_mask is not None:
             h = h * node_mask
@@ -148,12 +138,12 @@ class EGNN(nn.Module):
 
         self.to(self.device)
 
-    def forward(self, h, x, edges, edge_attr=None, node_mask=None, edge_mask=None, template_mask=None):
+    def forward(self, h, x, edges, edge_attr=None, node_mask=None, edge_mask=None, coord_mask=None):
         # Edit Emiel: Remove velocity as input
         # edge_attr = torch.sum((x[edges[0]] - x[edges[1]]) ** 2, dim=1, keepdim=True)
         h = self.embedding(h)
         for i in range(0, self.n_layers):
-            h, x, _ = self._modules["gcl_%d" % i](h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask, template_mask=template_mask)
+            h, x, _ = self._modules["gcl_%d" % i](h, edges, x, edge_attr=edge_attr, node_mask=node_mask, edge_mask=edge_mask, coord_mask=coord_mask)
         h = self.embedding_out(h)
 
         # Important, the bias of the last linear might be non-zero

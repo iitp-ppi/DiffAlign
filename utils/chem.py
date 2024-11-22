@@ -1,5 +1,6 @@
 from copy import deepcopy
 import torch
+from torch_geometric.data import Data
 from torchvision.transforms.functional import to_tensor
 import rdkit
 import rdkit.Chem.Draw
@@ -136,3 +137,48 @@ def get_best_rmsd(probe, ref):
     rmsd = MA.GetBestRMS(probe, ref)
     return rmsd
 
+
+def bond_type_to_int(bond):
+    bond_type = bond.GetBondType()
+    if bond_type == Chem.rdchem.BondType.SINGLE:
+        return 1
+    elif bond_type == Chem.rdchem.BondType.DOUBLE:
+        return 2
+    elif bond_type == Chem.rdchem.BondType.TRIPLE:
+        return 3
+    elif bond_type == Chem.rdchem.BondType.AROMATIC:
+        return 12
+    else:
+        assert "Bond type error"
+
+def mol_to_graph_data_obj(mol):
+    atom_features = []
+    for atom in mol.GetAtoms():
+        atom_features.append(atom.GetAtomicNum())
+    x = torch.tensor(atom_features, dtype=torch.int)
+
+    edges = []
+    bond_types = []
+    for bond in mol.GetBonds():
+        i = bond.GetBeginAtomIdx()
+        j = bond.GetEndAtomIdx()
+        bond_type = bond_type_to_int(bond)
+
+        edges.append((i, j))
+        bond_types.append(bond_type)
+        edges.append((j, i))
+        bond_types.append(bond_type)
+
+    edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+    edge_attr = torch.tensor(bond_types, dtype=torch.float).view(-1)
+
+    conf = mol.GetConformer()
+    coordinates = []
+    for atom in mol.GetAtoms():
+        pos = conf.GetAtomPosition(atom.GetIdx())
+        coordinates.append([pos.x, pos.y, pos.z])
+    pos = torch.tensor(coordinates, dtype=torch.float)
+
+    data = Data(atom_type=x, edge_index=edge_index, edge_type=edge_attr, pos=pos)
+    
+    return data

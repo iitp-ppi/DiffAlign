@@ -31,15 +31,10 @@ class Collater:
                     del batch2[i][key[:-2]], batch2[i][key]
                     batch2[i][key[:-2]] = batch[i][key]
                     del batch[i][key]
-            # batch = Batch.from_data_list(batch, follow_batch=self.follow_batch, exclude_keys=self.exclude_keys)
             batch2 = Batch.from_data_list(batch2, follow_batch=self.follow_batch, exclude_keys=self.exclude_keys)
             for i in range(len(batch)):
                 for key in self.keys:
-                    # print(batch2[i][key[:-2]])
-                    # print(key)
                     batch[i][key] = batch2[i][key[:-2]]
-            # for key in self.keys + ["batch_r", "ptr_r"]:
-            #     batch[key] = batch2[key[:-2]]
             return Batch.from_data_list(batch, follow_batch=self.follow_batch, exclude_keys=self.exclude_keys)
         elif isinstance(elem, torch.Tensor):
             return default_collate(batch)
