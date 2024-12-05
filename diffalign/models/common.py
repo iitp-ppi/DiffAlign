@@ -7,7 +7,7 @@ from torch_scatter import scatter_mean, scatter_add, scatter_max
 from torch_sparse import coalesce
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
 
-from utils.chem import BOND_TYPES
+from diffalign.utils.chem import BOND_TYPES
 
 
 class MultiLayerPerceptron(nn.Module):

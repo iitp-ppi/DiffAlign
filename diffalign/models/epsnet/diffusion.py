@@ -48,7 +48,7 @@ class SinusoidalTimeEmbeddings(nn.Module):
         return embeddings.squeeze(1)
 
 
-class DualEncoderEpsNetwork(nn.Module):
+class DiffAlign(nn.Module):
 
     def __init__(self):
         super().__init__()
