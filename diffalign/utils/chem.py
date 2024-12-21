@@ -1,7 +1,6 @@
 from copy import deepcopy
 import torch
 from torch_geometric.data import Data
-from torchvision.transforms.functional import to_tensor
 import rdkit
 import rdkit.Chem.Draw
 from rdkit import Chem
@@ -23,16 +22,6 @@ def set_conformer_positions(conf, pos):
     for i in range(pos.shape[0]):
         conf.SetAtomPosition(i, pos[i].tolist())
     return conf
-
-
-def draw_mol_image(rdkit_mol, tensor=False):
-    rdkit_mol.UpdatePropertyCache()
-    img = rdkit.Chem.Draw.MolToImage(rdkit_mol, kekulize=False)
-    if tensor:
-        return to_tensor(img)
-    else:
-        return img
-
 
 def update_data_rdmol_positions(data):
     for i in range(data.pos.size(0)):
