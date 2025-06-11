@@ -6,14 +6,14 @@ import torch
 from glob import glob
 from tqdm import tqdm
 from easydict import EasyDict
-from utils.dataloader import DataLoader
+from diffalign.utils.dataloader import DataLoader
 
-from models.epsnet import *
-from utils.datasets import ConformationDataset
+from diffalign.models.epsnet import *
+from diffalign.utils.datasets import ConformationDataset
 from torch.nn.utils import clip_grad_norm_
-from utils.common import get_optimizer, get_scheduler
-from utils.transforms import *
-from utils.misc import *
+from diffalign.utils.common import get_optimizer, get_scheduler
+from diffalign.utils.transforms import *
+from diffalign.utils.misc import *
 device = 'cuda:0'
 torch.set_printoptions(precision=2, sci_mode=False)
 
